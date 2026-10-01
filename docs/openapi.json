@@ -1,0 +1,1481 @@
+{
+    "openapi": "3.1.0",
+    "info": {
+        "title": "CSV Import & Report API",
+        "description": "Upload order CSVs, track asynchronous import jobs, and request asynchronous reports.\n\n**Authentication (demo):** every request identifies the caller with the `X-User-Id` header (click *Authorize* and enter e.g. `alice`). Users only see their own imports and reports.\n\n**Idempotency:** POST endpoints accept an optional `Idempotency-Key` header; repeating a request with the same key returns the original job instead of creating a new one.",
+        "license": {
+            "name": ""
+        },
+        "version": "1.0.0"
+    },
+    "paths": {
+        "/health": {
+            "get": {
+                "tags": [
+                    "ops"
+                ],
+                "summary": "Liveness: the process is up.",
+                "operationId": "health",
+                "responses": {
+                    "200": {
+                        "description": "Process is alive"
+                    }
+                }
+            }
+        },
+        "/imports": {
+            "get": {
+                "tags": [
+                    "imports"
+                ],
+                "summary": "List your imports, newest first.",
+                "operationId": "list_imports",
+                "parameters": [
+                    {
+                        "name": "limit",
+                        "in": "query",
+                        "description": "Page size (1-500, default 50).",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "format": "int64"
+                        }
+                    },
+                    {
+                        "name": "offset",
+                        "in": "query",
+                        "description": "Items to skip (default 0).",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "format": "int64"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Imports",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ImportList"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "user_id": []
+                    }
+                ]
+            },
+            "post": {
+                "tags": [
+                    "imports"
+                ],
+                "summary": "Upload a CSV file and start an asynchronous import.",
+                "description": "Returns `202 Accepted` immediately with the import id; poll `GET /imports/{id}` for progress.",
+                "operationId": "create_import",
+                "parameters": [
+                    {
+                        "name": "Idempotency-Key",
+                        "in": "header",
+                        "description": "Optional key to make retries of this request safe",
+                        "required": false,
+                        "schema": {
+                            "type": [
+                                "string",
+                                "null"
+                            ]
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "multipart/form-data": {
+                            "schema": {
+                                "$ref": "#/components/schemas/UploadForm"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "202": {
+                        "description": "Import job created",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ImportAccepted"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "No file / empty file",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Missing or invalid X-User-Id",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "413": {
+                        "description": "File too large",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "user_id": []
+                    }
+                ]
+            }
+        },
+        "/imports/{id}": {
+            "get": {
+                "tags": [
+                    "imports"
+                ],
+                "summary": "Get the status and progress of an import.",
+                "operationId": "get_import",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "description": "Import id",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Import status",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ImportStatus"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not found (or belongs to another user)",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "user_id": []
+                    }
+                ]
+            }
+        },
+        "/imports/{id}/errors": {
+            "get": {
+                "tags": [
+                    "imports"
+                ],
+                "summary": "List the invalid rows of an import and why each was rejected.",
+                "operationId": "list_import_errors",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "description": "Import id",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    },
+                    {
+                        "name": "limit",
+                        "in": "query",
+                        "description": "Page size (1-500, default 50).",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "format": "int64"
+                        }
+                    },
+                    {
+                        "name": "offset",
+                        "in": "query",
+                        "description": "Items to skip (default 0).",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "format": "int64"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Invalid rows",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ImportErrorsPage"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "user_id": []
+                    }
+                ]
+            }
+        },
+        "/imports/{id}/file": {
+            "get": {
+                "tags": [
+                    "imports"
+                ],
+                "summary": "Download the originally uploaded CSV file from object storage.",
+                "operationId": "download_import_file",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "description": "Import id",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "The uploaded file",
+                        "content": {
+                            "text/csv": {
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "410": {
+                        "description": "The file was removed with storage-admin",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "503": {
+                        "description": "Object storage unavailable",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "user_id": []
+                    }
+                ]
+            }
+        },
+        "/ready": {
+            "get": {
+                "tags": [
+                    "ops"
+                ],
+                "summary": "Readiness: database, message broker and object storage are reachable.",
+                "operationId": "ready",
+                "responses": {
+                    "200": {
+                        "description": "Dependencies reachable"
+                    },
+                    "503": {
+                        "description": "A dependency is unavailable"
+                    }
+                }
+            }
+        },
+        "/reports": {
+            "get": {
+                "tags": [
+                    "reports"
+                ],
+                "summary": "List your reports, newest first.",
+                "operationId": "list_reports",
+                "parameters": [
+                    {
+                        "name": "limit",
+                        "in": "query",
+                        "description": "Page size (1-500, default 50).",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "format": "int64"
+                        }
+                    },
+                    {
+                        "name": "offset",
+                        "in": "query",
+                        "description": "Items to skip (default 0).",
+                        "required": false,
+                        "schema": {
+                            "type": "integer",
+                            "format": "int64"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Reports",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ReportList"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "user_id": []
+                    }
+                ]
+            },
+            "post": {
+                "tags": [
+                    "reports"
+                ],
+                "summary": "Request an asynchronous report over your imported data.",
+                "description": "Returns `202 Accepted` immediately; poll `GET /reports/{id}` until `status` is `completed`,\nthen fetch the result from the response or `GET /reports/{id}/download`.\n\nThe set of imports is fixed when the report is requested: either the `import_ids` you pass\n(all must be yours and completed) or, if omitted, all your completed imports.",
+                "operationId": "create_report",
+                "parameters": [
+                    {
+                        "name": "Idempotency-Key",
+                        "in": "header",
+                        "description": "Optional key to make retries of this request safe",
+                        "required": false,
+                        "schema": {
+                            "type": [
+                                "string",
+                                "null"
+                            ]
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "description": "Optional; an empty body means all completed imports",
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/ReportRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "202": {
+                        "description": "Report job created",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ReportAccepted"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Malformed body",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "An import id does not exist (or is not yours)",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "An import is not completed, or you have no completed imports",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "user_id": []
+                    }
+                ]
+            }
+        },
+        "/reports/{id}": {
+            "get": {
+                "tags": [
+                    "reports"
+                ],
+                "summary": "Get the status of a report, including its summary (totals) once it is completed.",
+                "operationId": "get_report",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "description": "Report id",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Report status (and summary when completed)",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ReportStatus"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "user_id": []
+                    }
+                ]
+            }
+        },
+        "/reports/{id}/download": {
+            "get": {
+                "tags": [
+                    "reports"
+                ],
+                "summary": "Download a completed report as CSV (default) or JSON. The file is served from object storage.",
+                "operationId": "download_report",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "description": "Report id",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    },
+                    {
+                        "name": "format",
+                        "in": "query",
+                        "description": "`csv` (default) or `json`.",
+                        "required": false,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Report file",
+                        "content": {
+                            "text/csv": {
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Unknown format",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not found",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "Report is not completed yet",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "410": {
+                        "description": "Report files were removed with storage-admin",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    },
+                    "503": {
+                        "description": "Object storage unavailable",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ErrorBody"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "user_id": []
+                    }
+                ]
+            }
+        }
+    },
+    "components": {
+        "schemas": {
+            "AttemptInfo": {
+                "type": "object",
+                "description": "One processing attempt of a job.",
+                "required": [
+                    "attempt",
+                    "worker_id",
+                    "started_at"
+                ],
+                "properties": {
+                    "attempt": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "error": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "finished_at": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "date-time"
+                    },
+                    "outcome": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "description": "`succeeded` | `failed` | `retry_scheduled` | `lease_expired` | null while running"
+                    },
+                    "started_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "worker_id": {
+                        "type": "string"
+                    }
+                }
+            },
+            "ErrorBody": {
+                "type": "object",
+                "required": [
+                    "error"
+                ],
+                "properties": {
+                    "error": {
+                        "$ref": "#/components/schemas/ErrorDetail"
+                    }
+                }
+            },
+            "ErrorDetail": {
+                "type": "object",
+                "required": [
+                    "code",
+                    "message"
+                ],
+                "properties": {
+                    "code": {
+                        "type": "string",
+                        "description": "Machine-readable code, e.g. `not_found`."
+                    },
+                    "message": {
+                        "type": "string"
+                    }
+                }
+            },
+            "FieldError": {
+                "type": "object",
+                "required": [
+                    "field",
+                    "message"
+                ],
+                "properties": {
+                    "field": {
+                        "type": "string",
+                        "description": "Column name, or `row` for problems with the row as a whole."
+                    },
+                    "message": {
+                        "type": "string"
+                    }
+                }
+            },
+            "ImportAccepted": {
+                "type": "object",
+                "required": [
+                    "import_id",
+                    "status",
+                    "links"
+                ],
+                "properties": {
+                    "import_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "links": {
+                        "$ref": "#/components/schemas/Links"
+                    },
+                    "status": {
+                        "$ref": "#/components/schemas/ImportState"
+                    }
+                }
+            },
+            "ImportErrorsPage": {
+                "type": "object",
+                "required": [
+                    "import_id",
+                    "status",
+                    "stored_errors",
+                    "items",
+                    "limit",
+                    "offset"
+                ],
+                "properties": {
+                    "import_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "invalid_rows": {
+                        "type": [
+                            "integer",
+                            "null"
+                        ],
+                        "format": "int32",
+                        "description": "Total invalid rows in the file."
+                    },
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/RowErrorItem"
+                        }
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "offset": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "status": {
+                        "$ref": "#/components/schemas/ImportState"
+                    },
+                    "stored_errors": {
+                        "type": "integer",
+                        "format": "int64",
+                        "description": "Number of invalid rows whose details are stored (capped by MAX_STORED_ROW_ERRORS)."
+                    }
+                }
+            },
+            "ImportList": {
+                "type": "object",
+                "required": [
+                    "items",
+                    "limit",
+                    "offset"
+                ],
+                "properties": {
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ImportSummary"
+                        }
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "offset": {
+                        "type": "integer",
+                        "format": "int64"
+                    }
+                }
+            },
+            "ImportState": {
+                "type": "string",
+                "description": "User-facing import state.",
+                "enum": [
+                    "queued",
+                    "retrying",
+                    "processing",
+                    "completed",
+                    "completed_with_errors",
+                    "failed"
+                ]
+            },
+            "ImportStatus": {
+                "type": "object",
+                "required": [
+                    "import_id",
+                    "filename",
+                    "file_size",
+                    "file_sha256",
+                    "file_available",
+                    "status",
+                    "attempts",
+                    "max_attempts",
+                    "created_at",
+                    "attempt_history",
+                    "links"
+                ],
+                "properties": {
+                    "attempt_history": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/AttemptInfo"
+                        }
+                    },
+                    "attempts": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "file_available": {
+                        "type": "boolean",
+                        "description": "Whether the uploaded file is still in object storage (see `GET /imports/{id}/file`)."
+                    },
+                    "file_deleted_at": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "date-time",
+                        "description": "When the file was removed with `storage-admin` (imported rows are kept)."
+                    },
+                    "file_sha256": {
+                        "type": "string"
+                    },
+                    "file_size": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "filename": {
+                        "type": "string"
+                    },
+                    "finished_at": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "date-time"
+                    },
+                    "import_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "invalid_rows": {
+                        "type": [
+                            "integer",
+                            "null"
+                        ],
+                        "format": "int32"
+                    },
+                    "last_error": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "description": "Error of the most recent failed attempt (or the final failure reason)."
+                    },
+                    "links": {
+                        "$ref": "#/components/schemas/Links"
+                    },
+                    "max_attempts": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "next_attempt_at": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "date-time",
+                        "description": "When the next attempt is scheduled (only while `retrying`)."
+                    },
+                    "started_at": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "date-time"
+                    },
+                    "status": {
+                        "$ref": "#/components/schemas/ImportState"
+                    },
+                    "total_rows": {
+                        "type": [
+                            "integer",
+                            "null"
+                        ],
+                        "format": "int32",
+                        "description": "Data rows in the file (excluding the header). Null until processed."
+                    },
+                    "valid_rows": {
+                        "type": [
+                            "integer",
+                            "null"
+                        ],
+                        "format": "int32"
+                    }
+                }
+            },
+            "ImportSummary": {
+                "type": "object",
+                "required": [
+                    "import_id",
+                    "filename",
+                    "status",
+                    "attempts",
+                    "created_at"
+                ],
+                "properties": {
+                    "attempts": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "filename": {
+                        "type": "string"
+                    },
+                    "finished_at": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "date-time"
+                    },
+                    "import_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "invalid_rows": {
+                        "type": [
+                            "integer",
+                            "null"
+                        ],
+                        "format": "int32"
+                    },
+                    "last_error": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "status": {
+                        "$ref": "#/components/schemas/ImportState"
+                    },
+                    "total_rows": {
+                        "type": [
+                            "integer",
+                            "null"
+                        ],
+                        "format": "int32"
+                    },
+                    "valid_rows": {
+                        "type": [
+                            "integer",
+                            "null"
+                        ],
+                        "format": "int32"
+                    }
+                }
+            },
+            "Links": {
+                "type": "object",
+                "required": [
+                    "self"
+                ],
+                "properties": {
+                    "download_csv": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "download_json": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "errors": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "file": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "description": "Download the originally uploaded file."
+                    },
+                    "self": {
+                        "type": "string"
+                    }
+                }
+            },
+            "ReportAccepted": {
+                "type": "object",
+                "required": [
+                    "report_id",
+                    "status",
+                    "import_ids",
+                    "links"
+                ],
+                "properties": {
+                    "import_ids": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    },
+                    "links": {
+                        "$ref": "#/components/schemas/Links"
+                    },
+                    "report_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "status": {
+                        "$ref": "#/components/schemas/ReportState"
+                    }
+                }
+            },
+            "ReportList": {
+                "type": "object",
+                "required": [
+                    "items",
+                    "limit",
+                    "offset"
+                ],
+                "properties": {
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ReportSummary"
+                        }
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "offset": {
+                        "type": "integer",
+                        "format": "int64"
+                    }
+                }
+            },
+            "ReportRequest": {
+                "type": "object",
+                "properties": {
+                    "import_ids": {
+                        "type": [
+                            "array",
+                            "null"
+                        ],
+                        "items": {
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "description": "Imports to include. Omit (or send an empty body) to include all of your completed imports."
+                    }
+                }
+            },
+            "ReportResult": {
+                "type": "object",
+                "required": [
+                    "generated_at",
+                    "import_ids",
+                    "counted_statuses",
+                    "excluded_invalid_rows",
+                    "superseded_duplicate_orders",
+                    "rows",
+                    "totals"
+                ],
+                "properties": {
+                    "counted_statuses": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "description": "Order statuses included in the totals."
+                    },
+                    "excluded_invalid_rows": {
+                        "type": "integer",
+                        "format": "int64",
+                        "description": "Invalid CSV rows (across the covered imports) that were excluded because they failed validation."
+                    },
+                    "generated_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "import_ids": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    },
+                    "rows": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ReportRow"
+                        }
+                    },
+                    "superseded_duplicate_orders": {
+                        "type": "integer",
+                        "format": "int64",
+                        "description": "Rows superseded by the same order_id in a more recent import."
+                    },
+                    "totals": {
+                        "$ref": "#/components/schemas/ReportTotals"
+                    }
+                }
+            },
+            "ReportResultSummary": {
+                "type": "object",
+                "description": "Everything about a report except its rows. Stored in Postgres and returned by\n`GET /reports/{id}`; the full report (with rows) lives in object storage.",
+                "required": [
+                    "generated_at",
+                    "import_ids",
+                    "counted_statuses",
+                    "excluded_invalid_rows",
+                    "superseded_duplicate_orders",
+                    "row_count",
+                    "totals"
+                ],
+                "properties": {
+                    "counted_statuses": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "excluded_invalid_rows": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "generated_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "import_ids": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    },
+                    "row_count": {
+                        "type": "integer",
+                        "format": "int64",
+                        "description": "Number of rows (customers) in the report file."
+                    },
+                    "superseded_duplicate_orders": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "totals": {
+                        "$ref": "#/components/schemas/ReportTotals"
+                    }
+                }
+            },
+            "ReportRow": {
+                "type": "object",
+                "required": [
+                    "user_id",
+                    "total_orders",
+                    "total_quantity",
+                    "total_amount"
+                ],
+                "properties": {
+                    "total_amount": {
+                        "type": "string",
+                        "example": "1575.00"
+                    },
+                    "total_orders": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "total_quantity": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "user_id": {
+                        "type": "string",
+                        "description": "Customer id (the CSV `user_id` column)."
+                    }
+                }
+            },
+            "ReportState": {
+                "type": "string",
+                "description": "User-facing report state.",
+                "enum": [
+                    "queued",
+                    "retrying",
+                    "processing",
+                    "completed",
+                    "failed"
+                ]
+            },
+            "ReportStatus": {
+                "type": "object",
+                "required": [
+                    "report_id",
+                    "status",
+                    "import_ids",
+                    "attempts",
+                    "max_attempts",
+                    "created_at",
+                    "files_available",
+                    "attempt_history",
+                    "links"
+                ],
+                "properties": {
+                    "attempt_history": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/AttemptInfo"
+                        }
+                    },
+                    "attempts": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "files_available": {
+                        "type": "boolean",
+                        "description": "Whether the report files are still in object storage."
+                    },
+                    "files_deleted_at": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "date-time",
+                        "description": "When the report files were removed with `storage-admin`."
+                    },
+                    "finished_at": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "date-time"
+                    },
+                    "import_ids": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    },
+                    "last_error": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "links": {
+                        "$ref": "#/components/schemas/Links"
+                    },
+                    "max_attempts": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "next_attempt_at": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "date-time"
+                    },
+                    "report_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "started_at": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "date-time"
+                    },
+                    "status": {
+                        "$ref": "#/components/schemas/ReportState"
+                    },
+                    "summary": {
+                        "oneOf": [
+                            {
+                                "type": "null"
+                            },
+                            {
+                                "$ref": "#/components/schemas/ReportResultSummary",
+                                "description": "Totals and counts, present once the report is `completed`. The full report (every row)\nis a file in object storage: see `links.download_csv` / `links.download_json`."
+                            }
+                        ]
+                    }
+                }
+            },
+            "ReportSummary": {
+                "type": "object",
+                "required": [
+                    "report_id",
+                    "status",
+                    "import_ids",
+                    "attempts",
+                    "created_at"
+                ],
+                "properties": {
+                    "attempts": {
+                        "type": "integer",
+                        "format": "int32"
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "finished_at": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "date-time"
+                    },
+                    "import_ids": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    },
+                    "last_error": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "report_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "status": {
+                        "$ref": "#/components/schemas/ReportState"
+                    }
+                }
+            },
+            "ReportTotals": {
+                "type": "object",
+                "required": [
+                    "customers",
+                    "total_orders",
+                    "total_quantity",
+                    "total_amount"
+                ],
+                "properties": {
+                    "customers": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "total_amount": {
+                        "type": "string",
+                        "example": "4005.00"
+                    },
+                    "total_orders": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "total_quantity": {
+                        "type": "integer",
+                        "format": "int64"
+                    }
+                }
+            },
+            "RowErrorItem": {
+                "type": "object",
+                "required": [
+                    "line_number",
+                    "raw_record",
+                    "errors"
+                ],
+                "properties": {
+                    "errors": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/FieldError"
+                        },
+                        "description": "Every validation error found in the row."
+                    },
+                    "line_number": {
+                        "type": "integer",
+                        "format": "int32",
+                        "description": "Line number in the uploaded file (header = line 1)."
+                    },
+                    "raw_record": {
+                        "type": "string",
+                        "description": "The rejected row as it appeared in the file."
+                    }
+                }
+            },
+            "UploadForm": {
+                "type": "object",
+                "description": "Multipart form for uploads.",
+                "required": [
+                    "file"
+                ],
+                "properties": {
+                    "file": {
+                        "type": "string",
+                        "format": "binary",
+                        "description": "The CSV file. Required columns: user_id,order_id,product,quantity,unit_price,status"
+                    }
+                }
+            }
+        },
+        "securitySchemes": {
+            "user_id": {
+                "type": "apiKey",
+                "in": "header",
+                "name": "X-User-Id",
+                "description": "Caller identity (demo auth). Letters, digits, '-', '_', '.', '@'; max 64 chars."
+            }
+        }
+    },
+    "tags": [
+        {
+            "name": "imports",
+            "description": "CSV upload and import job tracking"
+        },
+        {
+            "name": "reports",
+            "description": "Asynchronous report generation"
+        },
+        {
+            "name": "ops",
+            "description": "Health checks"
+        }
+    ]
+}

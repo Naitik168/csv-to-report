@@ -1,0 +1,10 @@
+user_id,order_id,product,quantity,unit_price,status
+U010,O2001,Tablet,1,399.99,completed
+U010,O2002,,1,10.00,completed
+U011,O2003,Pen,0,1.50,completed
+U011,O2004,Notebook,3,-2.00,completed
+U012,O2005,Stapler,2,12.345,completed
+U012,O2006,Lamp,1,35.00,shipped
+U013,O2001,Duplicate Tablet,1,399.99,completed
+U013,O2007,"Cable, USB-C",2,9.99,pending
+U014,O2008,Speaker,1

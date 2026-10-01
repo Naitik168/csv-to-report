@@ -1,0 +1,68 @@
+[package]
+name = "csv-reports"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.94"
+description = "CSV import + asynchronous report generation with Postgres and RabbitMQ"
+publish = false
+
+[lib]
+name = "csv_reports"
+path = "src/lib.rs"
+
+[[bin]]
+name = "api"
+path = "src/bin/api.rs"
+
+[[bin]]
+name = "worker"
+path = "src/bin/worker.rs"
+
+[[bin]]
+name = "storage-admin"
+path = "src/bin/storage_admin.rs"
+
+[dependencies]
+anyhow = "1"
+async-trait = "0.1"
+aws-config = { version = "1", features = ["behavior-version-latest"] }
+aws-sdk-s3 = { version = "1", features = ["behavior-version-latest"] }
+bytes = "1"
+clap = { version = "4", features = ["derive", "env"] }
+axum = { version = "0.8", features = ["multipart", "macros"] }
+chrono = { version = "0.4", features = ["serde"] }
+csv = "1.3"
+futures-util = "0.3"
+lapin = "2.5"
+rand = "0.8"
+rust_decimal = { version = "1.36", features = ["serde-with-str"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+hex = "0.4"
+sqlx = { version = "0.8", default-features = false, features = [
+    "runtime-tokio",
+    "postgres",
+    "macros",
+    "migrate",
+    "uuid",
+    "chrono",
+    "json",
+    "rust_decimal",
+] }
+thiserror = "2"
+tokio = { version = "1", features = ["full"] }
+tokio-util = { version = "0.7", features = ["rt"] }
+tower-http = { version = "0.6", features = ["trace", "request-id", "util"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+utoipa = { version = "5", features = ["axum_extras", "uuid", "chrono", "decimal"] }
+utoipa-swagger-ui = { version = "9", features = ["axum", "vendored"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"
+
+[profile.release]
+strip = true
