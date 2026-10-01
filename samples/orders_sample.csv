@@ -1,0 +1,13 @@
+user_id,order_id,product,quantity,unit_price,status
+U001,O1001,Laptop,2,750.00,completed
+U001,O1002,Mouse,3,25.00,completed
+U002,O1003,Keyboard,1,80.00,completed
+U002,O1004,Monitor,2,300.00,completed
+U003,O1005,Headphones,4,50.00,completed
+U003,O1006,Webcam,2,90.00,completed
+U004,O1007,Desk,1,450.00,completed
+U004,O1008,Chair,2,200.00,completed
+U005,O1009,USB Cable,5,10.00,completed
+U005,O1010,Mouse Pad,2,20.00,completed
+U006,O1011,Keyboard,1,abc,completed
+U006,O1012,Monitor,1,250.00,completed

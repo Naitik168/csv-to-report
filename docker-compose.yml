@@ -1,0 +1,162 @@
+# Start everything:           docker compose up --build
+# Run the test suite:         docker compose --profile test run --rm tests
+# Remove stored files:        docker compose run --rm api storage-admin --help
+#
+# Services
+#   postgres  - relational state (source of truth for all jobs)
+#   rabbitmq  - message queue (management UI: http://localhost:15672, csv/csv)
+#   seaweedfs - S3-compatible object storage for uploaded CSVs and generated report files
+#   api       - HTTP API + Swagger UI (http://localhost:8080/swagger-ui)
+#   worker    - background workers, 2 replicas to demonstrate safe concurrent processing
+
+x-app-env: &app-env
+  DATABASE_URL: postgres://postgres:postgres@postgres:5432/csvreports
+  AMQP_URL: amqp://csv:csv@rabbitmq:5672/%2f
+  LOG_FORMAT: json
+  RUST_LOG: info,csv_reports=info
+  JOB_MAX_ATTEMPTS: "5"
+  S3_ENDPOINT: http://seaweedfs:8333
+  S3_REGION: us-east-1
+  S3_BUCKET: csv-reports
+  S3_ACCESS_KEY_ID: csvreports
+  S3_SECRET_ACCESS_KEY: csvreports-secret
+  S3_FORCE_PATH_STYLE: "true"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: csvreports
+    ports:
+      # Published on a non-default host port so it can't clash with a local Postgres.
+      - "${POSTGRES_HOST_PORT:-55432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d csvreports"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  rabbitmq:
+    image: rabbitmq:4.1-management-alpine
+    # Fixed hostname = fixed node name (rabbit@rabbitmq), so the data volume (and durable queues)
+    # is reused when the container is recreated.
+    hostname: rabbitmq
+    environment:
+      # RabbitMQ only lets `guest` connect from localhost, so containers use a dedicated user.
+      RABBITMQ_DEFAULT_USER: csv
+      RABBITMQ_DEFAULT_PASS: csv
+    ports:
+      # AMQP (5672) is only needed inside the compose network; publish just the management UI.
+      - "${RABBITMQ_UI_HOST_PORT:-15672}:15672"
+    volumes:
+      - rabbitmqdata:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  seaweedfs:
+    # All-in-one SeaweedFS (`weed mini`): master + volume + filer + S3 gateway in one container.
+    image: chrislusf/seaweedfs:4.45
+    command: ["mini", "-dir=/data", "-bucket=csv-reports"]
+    environment:
+      # Registers an admin S3 identity with these credentials.
+      AWS_ACCESS_KEY_ID: csvreports
+      AWS_SECRET_ACCESS_KEY: csvreports-secret
+    ports:
+      # S3 API, published so you can inspect files with any S3 client (e.g. `aws --endpoint-url`).
+      - "${S3_HOST_PORT:-8333}:8333"
+    volumes:
+      - s3data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8333/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 10s
+
+  api:
+    build:
+      context: .
+      target: runtime
+    image: csv-reports:local
+    command: ["api"]
+    environment:
+      <<: *app-env
+      HTTP_ADDR: 0.0.0.0:8080
+      MAX_UPLOAD_BYTES: "10485760"
+    ports:
+      - "${API_HOST_PORT:-8080}:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      seaweedfs:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: .
+      target: runtime
+    image: csv-reports:local
+    command: ["worker"]
+    environment:
+      <<: *app-env
+      WORKER_CONCURRENCY: "4"
+      JOB_LEASE_SECS: "30"
+      JOB_HEARTBEAT_SECS: "10"
+      JOB_TIMEOUT_SECS: "300"
+      RETRY_BACKOFF_BASE_MS: "2000"
+      RETRY_BACKOFF_MAX_MS: "300000"
+      # Makes report generation visibly asynchronous (status goes queued -> processing -> completed).
+      # Set to 0 for instant reports.
+      REPORT_SIMULATED_DELAY_MS: ${REPORT_SIMULATED_DELAY_MS:-5000}
+      # Set e.g. to 0.3 to watch retries/backoff happen (see README "Failure demos").
+      CHAOS_FAILURE_RATE: ${CHAOS_FAILURE_RATE:-0}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      seaweedfs:
+        condition: service_healthy
+    deploy:
+      replicas: 2
+    stop_grace_period: 30s
+    restart: unless-stopped
+
+  tests:
+    profiles: ["test"]
+    build:
+      context: .
+      target: tests
+    environment:
+      # sqlx::test creates an isolated throwaway database per test via this connection
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/postgres
+      # Runs the real S3 client tests (tests/s3_store.rs) against SeaweedFS.
+      S3_TEST_ENDPOINT: http://seaweedfs:8333
+      S3_ACCESS_KEY_ID: csvreports
+      S3_SECRET_ACCESS_KEY: csvreports-secret
+      RUST_LOG: warn
+    depends_on:
+      postgres:
+        condition: service_healthy
+      seaweedfs:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  rabbitmqdata:
+  s3data:
